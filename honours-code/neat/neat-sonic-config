@@ -1,65 +1,83 @@
-# neat-python configuration for the LunarLander-v2 environment on OpenAI Gym
-
 [NEAT]
-pop_size              = 30
-# Note: the fitness threshold will never be reached because
-# we are controlling the termination ourselves based on simulation performance.
 fitness_criterion     = max
-fitness_threshold     = 1000.0
-reset_on_extinction   = 0
+fitness_threshold     = 100000
+pop_size              = 30
+reset_on_extinction   = True
 
 [SonicGenome]
-num_inputs              = 28224
-num_hidden              = 0
-num_outputs             = 12
-initial_connection      = partial 0.5
-feed_forward            = True
-compatibility_disjoint_coefficient = 1.0
-compatibility_weight_coefficient   = 1.0
-conn_add_prob           = 0.15
-conn_delete_prob        = 0.1
-node_add_prob           = 0.15
-node_delete_prob        = 0.1
-activation_default      = clamped
-activation_options      = clamped
-activation_mutate_rate  = 0.0
-aggregation_default     = sum
-aggregation_options     = sum
-aggregation_mutate_rate = 0.0
-bias_init_mean          = 0.0
+# node activation options
+activation_default      = sigmoid
+activation_mutate_rate  = 0.05
+activation_options      = sigmoid gauss 
+#abs clamped cube exp gauss hat identity inv log relu sigmoid sin softplus square tanh
+
+# node aggregation options
+aggregation_default     = random
+aggregation_mutate_rate = 0.05
+aggregation_options     = sum product min max mean median maxabs
+
+# node bias options
+bias_init_mean          = 0.05
 bias_init_stdev         = 1.0
-bias_replace_rate       = 0.02
-bias_mutate_rate        = 0.8
-bias_mutate_power       = 0.4
 bias_max_value          = 30.0
 bias_min_value          = -30.0
+bias_mutate_power       = 0.5
+bias_mutate_rate        = 0.7
+bias_replace_rate       = 0.1
+
+# genome compatibility options
+compatibility_disjoint_coefficient = 1.0
+compatibility_weight_coefficient   = 0.5
+
+# connection add/remove rates
+conn_add_prob           = 0.5
+conn_delete_prob        = 0.1
+
+# connection enable options
+enabled_default         = True
+enabled_mutate_rate     = 0.2
+
+feed_forward            = False
+#initial_connection      = unconnected
+initial_connection      = partial_nodirect 0.5
+
+# node add/remove rates
+node_add_prob           = 0.5
+node_delete_prob        = 0.5
+
+# network parameters
+num_hidden              = 0
+num_inputs              = 1120
+num_outputs             = 12
+
+# node response options
 response_init_mean      = 1.0
-response_init_stdev     = 0.0
-response_replace_rate   = 0.0
-response_mutate_rate    = 0.1
-response_mutate_power   = 0.01
+response_init_stdev     = 0.05
 response_max_value      = 30.0
 response_min_value      = -30.0
+response_mutate_power   = 0.1
+response_mutate_rate    = 0.75
+response_replace_rate   = 0.1
 
+# connection weight options
+weight_init_mean        = 0.1
+weight_init_stdev       = 1.0
 weight_max_value        = 30
 weight_min_value        = -30
-weight_init_mean        = 0.0
-weight_init_stdev       = 1.0
+weight_mutate_power     = 0.5
 weight_mutate_rate      = 0.8
-weight_replace_rate     = 0.02
-weight_mutate_power     = 0.4
-enabled_default         = True
-enabled_mutate_rate     = 0.01
+weight_replace_rate     = 0.1
 
 [DefaultSpeciesSet]
-compatibility_threshold = 3.0
+compatibility_threshold = 2.5
 
 [DefaultStagnation]
-species_fitness_func = mean
-max_stagnation       = 15
-species_elitism      = 4
+species_fitness_func = max
+max_stagnation       = 50
+species_elitism      = 0
 
 [DefaultReproduction]
-elitism            = 2
-survival_threshold = 0.2
+elitism            = 1
+survival_threshold = 0.3
+
 

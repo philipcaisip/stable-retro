@@ -4,20 +4,48 @@ import pickle
 import random
 import time
 
-# import gymnasium as gym
-# import gym.wrappers
 import matplotlib.pyplot as plt
 plt.switch_backend('agg')
-import numpy as np
+
+import cv2
 
 import neat
 import visualize
 
-# NUM_CORES = multiprocessing.cpu_count()
-NUM_CORES = 2
+NUM_CORES = max(1, multiprocessing.cpu_count() - 2)
+global_env = None
 
+def evaluate_genome(genome, config):
+    net = neat.nn.FeedForwardNetwork.create(genome, config)
 
-NUM_INPUTS = 8
+    steps = 0
+    ob, _ = global_env.reset()
+    
+    fitness = 0
+    
+    while True:
+        steps += 1
+
+        # format observation for neat nn
+        SCALE = 1 / 8
+        inx, iny, _ = env.observation_space.shape
+        inx = int(SCALE * inx)
+        iny = int(SCALE * iny)
+        formatted_ob = cv2.resize(ob, (inx, iny))
+        formatted_ob = cv2.cvtColor(formatted_ob, cv2.COLOR_BGR2GRAY)
+        formatted_ob = formatted_ob.flatten()
+        
+        net_output = net.activate(formatted_ob)
+        
+        ob, rew, terminated, truncated, info = env.step(net_output)
+
+        fitness = rew / steps
+        
+        if terminated or truncated:
+            break
+    
+    return fitness
+
 
 
 class SonicGenome(neat.DefaultGenome):
@@ -47,44 +75,6 @@ class SonicGenome(neat.DefaultGenome):
         return f"Reward discount: {self.discount}\n{super().__str__()}"
 
 
-def compute_simple_fitness(genome, net, episodes, min_reward, max_reward):
-    m = int(round(np.log(0.01) / np.log(genome.discount)))
-    discount_function = [genome.discount ** (m - i) for i in range(m + 1)]
-
-    reward_error = []
-    for score, data in episodes:
-        # Compute normalized discounted reward.
-        dr = np.convolve(data[:, -1], discount_function)[m:]
-        dr = 2 * (dr - min_reward) / (max_reward - min_reward) - 1.0
-        dr = np.clip(dr, -1.0, 1.0)
-
-        for row, dr in zip(data, dr):
-            observation = row[:NUM_INPUTS]
-            action = int(row[NUM_INPUTS])
-            output = net.activate(observation)
-            reward_error.append(float((output[action] - dr) ** 2))
-
-    return reward_error
-
-def compute_fitness(genome, net, episodes, min_reward, max_reward):
-    m = int(round(np.log(0.01) / np.log(genome.discount)))
-    discount_function = [genome.discount ** (m - i) for i in range(m + 1)]
-
-    reward_error = []
-    for score, data in episodes:
-        # Compute normalized discounted reward.
-        dr = np.convolve(data[:, -1], discount_function)[m:]
-        dr = 2 * (dr - min_reward) / (max_reward - min_reward) - 1.0
-        dr = np.clip(dr, -1.0, 1.0)
-
-        for row, dr in zip(data, dr):
-            observation = row[:8]
-            action = int(row[8])
-            output = net.activate(observation)
-            reward_error.append(float((output[action] - dr) ** 2))
-
-    return reward_error
-
 
 class PooledErrorCompute(object):
     def __init__(self, num_workers, env):
@@ -92,85 +82,37 @@ class PooledErrorCompute(object):
         self.test_episodes = []
         self.generation = 0
 
-        self.min_reward = -200
-        self.max_reward = 200
+        # self.min_reward = -200
+        # self.max_reward = 200
 
         self.episode_score = []
         self.episode_length = []
         
         self.env = env
 
-    def simulate(self, nets):
-        scores = []
-        for genome, net in nets:
-            observation_init_vals, observation_init_info = self.env.reset()
-            step = 0
-            data = []
-            while 1:
-                step += 1
-                if step < 200 and random.random() < 0.2:
-                    action = self.env.action_space.sample()
-                else:
-                    output = net.activate(observation_init_vals)
-                    action = np.argmax(output)
-
-                # Note: done has been deprecated.
-                observation, reward, terminated, done, info = self.env.step(action)
-                data.append(np.hstack((observation, action, reward)))
-
-                if terminated:
-                    break
-
-            data = np.array(data)
-            score = np.sum(data[:, -1])
-            self.episode_score.append(score)
-            scores.append(score)
-            self.episode_length.append(step)
-
-            self.test_episodes.append((score, data))
-
-        print("Score range [{:.3f}, {:.3f}]".format(min(scores), max(scores)))
-
+    
     def evaluate_genomes(self, genomes, config):
         self.generation += 1
 
         t0 = time.time()
-        nets = []
-        for gid, g in genomes:
-            nets.append((g, neat.nn.FeedForwardNetwork.create(g, config)))
-
-        print("network creation time {0}".format(time.time() - t0))
-        t0 = time.time()
-
-        # Periodically generate a new set of episodes for comparison.
-        if 1 == self.generation % 10:
-            self.test_episodes = self.test_episodes[-300:]
-            self.simulate(nets)
-            print("simulation run time {0}".format(time.time() - t0))
-            t0 = time.time()
-
-        # Assign a composite fitness to each genome; genomes can make progress either
-        # by improving their total reward or by making more accurate reward estimates.
         print("Evaluating {0} test episodes".format(len(self.test_episodes)))
+
         if self.num_workers < 2:
-            for genome, net in nets:
-                reward_error = compute_fitness(genome, net, self.test_episodes, self.min_reward, self.max_reward)
-                genome.fitness = -np.sum(reward_error) / len(self.test_episodes)
+            pass
         else:
             with multiprocessing.Pool(self.num_workers) as pool:
                 jobs = []
-                for genome, net in nets:
-                    jobs.append(pool.apply_async(compute_fitness,
-                                                 (genome, net, self.test_episodes,
-                                                  self.min_reward, self.max_reward)))
+                for _, genome in genomes:
+                    jobs.append(pool.apply_async(evaluate_genome,
+                                                  (self.env, genome, config)))
 
-                for job, (genome_id, genome) in zip(jobs, genomes):
-                    reward_error = job.get(timeout=None)
-                    genome.fitness = -np.sum(reward_error) / len(self.test_episodes)
+                for job, (_, genome) in zip(jobs, genomes):
+                    genome.fitness = job.get(timeout=None)
+                
+                pool.join()
 
         print("final fitness compute time {0}\n".format(time.time() - t0))
-        pool.join()
-
+                
 
 def run(env):
     # Load the config file, which is assumed to live in
@@ -193,6 +135,7 @@ def run(env):
     ec = PooledErrorCompute(NUM_CORES, env=env)
     while 1:
         try:
+            pe = neat.ParallelEvaluator(NUM_CORES, ec.evaluate_genomes)
             gen_best = pop.run(ec.evaluate_genomes, n=5)
 
             # print(gen_best)
@@ -218,40 +161,8 @@ def run(env):
             for g in best_genomes:
                 best_networks.append(neat.nn.FeedForwardNetwork.create(g, config))
 
-            solved = True
-            best_scores = []
-            for k in range(100):
-                observation_init_vals, observation_init_info = env.reset()
-                score = 0
-                step = 0
-                while 1:
-                    step += 1
-                    # Use the total reward estimates from all five networks to
-                    # determine the best action given the current state.
-                    votes = np.zeros((4,))
-                    for n in best_networks:
-                        output = n.activate(observation_init_vals)
-                        votes[np.argmax(output)] += 1
 
-                    best_action = np.argmax(votes)
-                    # Note: done has been deprecated.
-                    observation, reward, terminated, done, info = env.step(best_action)
-                    score += reward
-                    # env.render()
-                    if terminated:
-                        break
-
-                ec.episode_score.append(score)
-                ec.episode_length.append(step)
-
-                best_scores.append(score)
-                avg_score = sum(best_scores) / len(best_scores)
-                print(k, score, avg_score)
-                if avg_score < -1000:
-                    solved = False
-                    break
-
-            if solved:
+            if pop.generation >= 60:
                 print("Solved.")
 
                 # Save the winners.
@@ -267,7 +178,7 @@ def run(env):
             
             
         except KeyboardInterrupt:
-            print("User break.")
+            print("User break. Attempting to save model.")
             for n, g in enumerate(best_genomes):
                 name = 'winner-{0}'.format(n)
                 with open(name + '.pickle', 'wb') as f:
