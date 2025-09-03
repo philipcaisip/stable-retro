@@ -6,7 +6,7 @@ import argparse
 
 import gymnasium as gym
 import numpy as np
-from gymnasium.wrappers.time_limit import TimeLimit
+from gymnasium.wrappers import TimeLimit
 from stable_baselines3 import PPO
 from stable_baselines3.common.atari_wrappers import ClipRewardEnv, WarpFrame
 from stable_baselines3.common.vec_env import (
@@ -86,7 +86,11 @@ def main():
     args = parser.parse_args()
 
     def make_env():
-        env = make_retro(game=args.game, state=args.state, scenario=args.scenario)
+        env = make_retro(
+            game=args.game, 
+            state=args.state, 
+            scenario=args.scenario, 
+            render_mode=None) 
         env = wrap_deepmind_retro(env)
         return env
 
@@ -108,6 +112,7 @@ def main():
         total_timesteps=100_000_000,
         log_interval=1,
     )
+    model.save("ppo-sonic-model.zip")
 
 
 if __name__ == "__main__":
